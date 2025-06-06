@@ -268,7 +268,7 @@ async def diary_select_by_text(m: types.Message, state: FSMContext, session: Asy
     await m.answer("Расскажи, где вы с другом побывали и чем занимались?")
     await state.set_state(Diary.q1)
 
-# ---- последовательные вопросы ----
+
 async def _save_q(m: types.Message, state: FSMContext, session: AsyncSession, field: str, next_state: Optional[State], next_q: str):
     data = await state.get_data()
     meet = await session.get(Meet, data["meet_id"])
@@ -322,17 +322,3 @@ async def diary_photo(m: types.Message, state: FSMContext, session: AsyncSession
         reply_markup=menu_kb,
     )
     await state.clear()
-
-
-# ───────────────────────── End ────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
