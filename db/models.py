@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text, BigInteger, DateTime, Boolean
+from sqlalchemy import String, Text, BigInteger, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
 from db.engine import Base
@@ -38,6 +38,23 @@ class Culture(Base):
     is_all_day: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class Foreigner(Base):
+# class Foreigner(Base):
+#     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+#     tg_username: Mapped[str] = mapped_column(String)
+#     owner_id: Mapped[str] = mapped_column(ForeignKey('users.id'))
+
+
+class Meet(Base):
+    __tablename__ = 'meets'
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tg_username: Mapped[str] = mapped_column(String)
+    date: Mapped[str] = mapped_column(String)  
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    foreigner_tg_name: Mapped[str] = mapped_column(String)
+    q1: Mapped[str] = mapped_column(Text, nullable=True)
+    q2: Mapped[str] = mapped_column(Text, nullable=True )
+    q3: Mapped[str] = mapped_column(Text, nullable=True)
+    q4: Mapped[str] = mapped_column(Text, nullable=True)
+    q5: Mapped[str] = mapped_column(Text, nullable=True)
+    photo_base64: Mapped[str] = mapped_column(Text)
+
+
