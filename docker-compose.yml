@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: rtr_db
+      POSTGRES_USER: road_to_russia
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  alembic:
+    build: .
+    command: alembic upgrade head
+    environment:
+      DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
+    depends_on:
+      - db
+
+  bot:
+    build: .
+    command: python main.py
+    environment:
+      TOKEN: ${TOKEN}
+      DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
+    depends_on:
+      - db
+      - alembic
+      
+  excel_import:
+    build: .
+    command: python excel_reader.py
+    environment:
+      DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
+    depends_on:
+      - db
+    volumes:
+      - ./user_data.xlsx:/app/user_data.xlsx
+      - ./mero.xlsx:/app/mero.xlsx
+
+volumes:
+  postgres_data:

@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pandas as pd
 import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,10 +9,10 @@ from db.engine import engine
 from db.models import MessagesForUsers
 
 
-df = pd.read_excel('data.xlsx')
+df = pd.read_excel('user_data.xlsx')
 selected = df.iloc[:, [0, 1, 4, 5]]
 
-async def main():
+async def create_location ():
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with async_session() as session:
         for _, row in selected.iterrows():
@@ -23,5 +26,4 @@ async def main():
         await session.commit()
     print('Импорт завершён успешно!')
 
-if __name__ == "__main__":
-    asyncio.run(main())
+get_locations = create_location()

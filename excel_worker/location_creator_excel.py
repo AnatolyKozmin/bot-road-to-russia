@@ -9,7 +9,7 @@ from db.models import Culture
 df = pd.read_excel('mero.xlsx')
 selected = df.iloc[:, [0, 1, 2, 3, 4, 5]]
 
-async def main():
+async def create_user_data():
     async with session_maker() as session:
         for _, row in selected.iterrows():
             mero = Culture(
@@ -24,5 +24,4 @@ async def main():
         await session.commit()
     print('Импорт всё !')
 
-if __name__ == "__main__":
-    asyncio.run(main())
+get_user_data = create_user_data()
