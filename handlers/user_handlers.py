@@ -1,36 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Telegram bot – проект «Дорога в Россию»
-======================================
-
-Функционал:
------------
-1. **Регистрация** по персональному коду (`/start`).
-2. **Встреча** – подбор места (бюджет → категория) и рекомендация.
-3. **Дата** – пользователь присылает строку вида `RTR0001-@nickname-12.06.2025`,
-   создаём/обновляем запись `Meet` (поля могут дописываться позднее).
-4. **Дневник** – последовательный опрос после встречи + фото; ответы дозаписываются
-   в существующий `Meet` (по пользователю и нику иностранца). Если открытых
-   встреч несколько – отдаём кнопки выбора.
-
-SQLAlchemy модели
------------------
-* Используется схема из `db.models` выше: `Culture`, `Users`, `MessagesForUsers`, `Meet`.
-* Для `Culture` есть булевые флаги `up_five`, `up_hundred`, `is_museum`, `is_park`,
-  `is_delicious`, `is_all_day`.
-
-Aiogram
--------
-* Версия 3.x (Router‑based).
-* FSM: 4 группы состояний.
-    - `GetUserCode`
-    - `GetCulture`   (price → category)
-    - `GetDate`      (один шаг: строка с датой)
-    - `Diary`        (meet_select → q1…q5 → photo)
-
-NB: минимальная обработка ошибок/валидации – при желании можно усилить.
-"""
-
 from __future__ import annotations
 
 import re
@@ -48,14 +15,14 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Users, MessagesForUsers, Culture, Meet
 
 router = Router()
 
-# ────────────────────────── FSM ────────────────────────────────
+
 class GetUserCode(StatesGroup):
     code = State()
 
@@ -70,7 +37,7 @@ class GetDate(StatesGroup):
 
 
 class Diary(StatesGroup):
-    meet_select = State()   # выбор встречи, если их >1
+    meet_select = State()
     q1 = State()
     q2 = State()
     q3 = State()
@@ -79,7 +46,7 @@ class Diary(StatesGroup):
     photo = State()
 
 
-# ─────────────────────── клавиатуры ───────────────────────────
+
 price_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Бесплатно")],
@@ -107,34 +74,36 @@ menu_kb = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 
-# ───────────────────────── helpers ────────────────────────────
-PRICE_MAP = {
-    "Бесплатно": (False, False),       # up_five=False & up_hundred=False
-    "До 500 ₽": (True, False),         # up_five=True
-    "До 1000 ₽": (False, True),        # up_hundred=True
-}
+back_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="Назад")]], resize_keyboard=True
+)
 
+PRICE_MAP = {
+    "Бесплатно": (False, False),
+    "До 500 ₽": (True, False),
+    "До 1000 ₽": (False, True),
+}
 CATEGORY_MAP = {
     "Музей": "is_museum",
     "Парк": "is_park",
     "Покушать": "is_delicious",
     "На весь день": "is_all_day",
 }
-
 DATE_RE = re.compile(r"^(RTR\d{4})-(@\w+)-(\d{2}\.\d{2}\.\d{4})$")
 DIARY_RE = re.compile(r"^встреча-(RTR\d{4})-(@\w+)$", re.IGNORECASE)
 
-# ───────────────────────── /start ─────────────────────────────
+
 @router.message(CommandStart())
 async def cmd_start(m: types.Message, state: FSMContext):
-    if m.from_user.username is None:
-        await m.answer("Пожалуйста, открой имя пользователя в Telegram и попробуй снова.")
+    if not m.from_user.username:
+        await m.answer("Открой имя пользователя в Telegram и попробуй снова.")
         return
-
     await m.answer(
-        "Привет👋\nМеня зовут Русь, я буду твоим помощником в проекте «Дорога в Россию».\n\n"
-        "Напиши, пожалуйста, свой индивидуальный номер."
-    )
+            "Привет👋\nМеня зовут Русь, я буду твоим помощником на протяжении всего проекта «Дорога в Россию»🧡\n\n"
+            "Напиши, пожалуйста, свой индивидуальный номер\n\n"
+            "P.S Он был отправлен тебе в личные сообщения. Если вдруг по каким-то причинам ты его не получил, сообщи об этом @AnnaLastochka20 и возвращайся сюда."
+        )
+    
     await state.set_state(GetUserCode.code)
 
 
@@ -142,45 +111,35 @@ async def cmd_start(m: types.Message, state: FSMContext):
 @router.message(GetUserCode.code)
 async def process_code(m: types.Message, state: FSMContext, session: AsyncSession):
     code = m.text.strip()
-    res = await session.execute(select(MessagesForUsers).where(MessagesForUsers.code == code))
-    msgs = res.scalars().all()
+    msgs = (await session.execute(select(MessagesForUsers).where(MessagesForUsers.code == code))).scalars().all()
     if not msgs:
         await m.answer("Код не найден. Свяжитесь с организатором @AnnaLastochka20.")
         return
 
-    usr = (await session.execute(select(Users).where(Users.tg_id == m.from_user.id))).scalar_one_or_none()
-    if not usr:
+    if not (await session.execute(select(Users).where(Users.tg_id == m.from_user.id))).scalar_one_or_none():
         session.add(Users(tg_id=m.from_user.id, tg_username=m.from_user.username))
         await session.flush()
 
     for msg in msgs:
         await m.answer(msg.text_for_message)
-
     await session.commit()
 
     await m.answer(
-        "<b>1.</b> Познакомьтесь со своим другом.\n"
-        "<b>2.</b> Согласуйте встречу в течение 2 дней.\n"
-        "<b>3.</b> Используйте меню ниже для следующих шагов.",
-        parse_mode="HTML",
-        reply_markup=menu_kb,
-    )
+        "<b>1.</b> Познакомьтесь…\n<b>2.</b> Согласуйте встречу за 2 дня.\n<b>3.</b> Используйте меню.",
+        parse_mode="HTML", reply_markup=menu_kb)
     await state.clear()
 
-# ───────────────────────── «Встреча» ──────────────────────────
+
 @router.message(F.text.casefold() == "встреча")
 async def meet_entry(m: types.Message, state: FSMContext):
-    await m.answer(
-        "Выберите бюджет встречи:",
-        reply_markup=price_kb,
-    )
+    await m.answer("Выберите бюджет встречи:", reply_markup=price_kb)
     await state.set_state(GetCulture.price)
 
 
 @router.message(GetCulture.price)
 async def meet_price(m: types.Message, state: FSMContext):
     if m.text not in PRICE_MAP:
-        await m.answer("Пожалуйста, выберите вариант из клавиатуры.")
+        await m.answer("Используйте кнопки.")
         return
     await state.update_data(price=m.text)
     await m.answer("Куда бы вы хотели отправиться?", reply_markup=category_kb)
@@ -190,48 +149,37 @@ async def meet_price(m: types.Message, state: FSMContext):
 @router.message(GetCulture.category)
 async def meet_category(m: types.Message, state: FSMContext, session: AsyncSession):
     if m.text not in CATEGORY_MAP:
-        await m.answer("Выберите вариант из клавиатуры.")
+        await m.answer("Используйте кнопки.")
         return
-
     data = await state.update_data(category=m.text)
     price_text, cat_text = data["price"], data["category"]
-
     up_five, up_hundred = PRICE_MAP[price_text]
     cat_field = CATEGORY_MAP[cat_text]
 
     await m.answer("Подбираю место…", reply_markup=ReplyKeyboardRemove())
 
-    stmt = (
-        select(Culture)
-        .where(getattr(Culture, cat_field) == True)
-        .where(Culture.up_five == up_five if up_five else True)
-        .where(Culture.up_hundred == up_hundred if up_hundred else True)
-        .order_by(func.random())
-        .limit(1)
-    )
-    place = (await session.execute(stmt)).scalar_one_or_none()
+    stmt = select(Culture).where(getattr(Culture, cat_field) == True)
+    if up_five:
+        stmt = stmt.where(Culture.up_five.is_(True))
+    if up_hundred:
+        stmt = stmt.where(Culture.up_hundred.is_(True))
+    place = (await session.execute(stmt.order_by(func.random()).limit(1))).scalar_one_or_none()
 
     if place:
         text = (
-            f"<b>{place.name}</b>\n"
-            f"{place.desc or ''}\n\n"
+            f"<b>{place.name}</b>\n{place.desc or ''}\n\n"
             f"📍 <b>Адрес:</b> {place.adress}\n"
             f"💰 <b>Бюджет:</b> {price_text}\n"
-            f"🏷️ <b>Тип:</b> {cat_text}\n"
-            f"{'🔗 ' + place.site if place.site else ''}"
+            f"🏷️ <b>Тип:</b> {cat_text}"
         )
-        if place.ya_card:
+        if place.ya_card and place.ya_card.startswith("AgAC"):
             await m.answer_photo(photo=place.ya_card, caption=text, parse_mode="HTML")
         else:
-            await m.answer(text, parse_mode="HTML")
+            await m.answer(text + (f"\n🔗 {place.ya_card}" if place.ya_card else ''), parse_mode="HTML")
     else:
         await m.answer("Не нашлось подходящих мест. Попробуйте другие параметры.")
 
-    await m.answer(
-        "Как только выберете удобную дату, нажмите «Дата».\n\n"
-        "Напоминаю, что дату нужно выбрать в течение двух дней.",
-        reply_markup=menu_kb,
-    )
+    await m.answer("После выбора места нажмите «Дата».", reply_markup=menu_kb)
     await state.clear()
 
 # ───────────────────────── «Дата» ─────────────────────────────
@@ -239,45 +187,34 @@ async def meet_category(m: types.Message, state: FSMContext, session: AsyncSessi
 async def date_entry(m: types.Message, state: FSMContext):
     await m.answer(
         "Напиши дату в формате:\nRTR0001-@nick-ДД.ММ.ГГГГ",
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=back_kb,
     )
     await state.set_state(GetDate.date_input)
 
 
 @router.message(GetDate.date_input)
 async def save_date(m: types.Message, state: FSMContext, session: AsyncSession):
-    match = DATE_RE.match(m.text.strip())
-    if not match:
-        await m.answer("Неверный формат. Проверь пример и попробуй снова.")
+    if m.text.lower() == "назад":
+        await m.answer("Ок, возвращаемся в меню.", reply_markup=menu_kb)
+        await state.clear()
         return
 
-    user_code, friend_nick, date_str = match.groups()
-    try:
-        meet_date = datetime.strptime(date_str, "%d.%m.%Y").date()
-    except ValueError:
-        await m.answer("Неверная дата. Используйте ДД.ММ.ГГГГ.")
+    mt = DATE_RE.match(m.text.strip())
+    if not mt:
+        await m.answer("Неверный формат. Проверь пример или нажми «Назад».")
         return
 
-    # либо обновляем существующую, либо создаём новую запись Meet
-    stmt = select(Meet).where(
-        Meet.user_id == m.from_user.id,
-        Meet.foreigner_tg_name == friend_nick,
-    )
-    res = await session.execute(stmt)
-    meet = res.scalar_one_or_none()
+    _, friend_nick, date_str = mt.groups()
+    stmt = select(Meet).where(Meet.user_id == m.from_user.id, Meet.foreigner_tg_name == friend_nick)
+    meet = (await session.execute(stmt)).scalar_one_or_none()
     if meet:
         meet.date = date_str
     else:
-        meet = Meet(date=date_str, user_id=m.from_user.id, foreigner_tg_name=friend_nick)
+        meet = Meet(date=date_str, user_id=m.from_user.id, foreigner_tg_name=friend_nick, photo_base64="")
         session.add(meet)
-
     await session.commit()
 
-    await m.answer(
-        "Ответ записан! Не забудьте сделать совместную фотографию).\n\n"
-        "После встречи выберите пункт «Дневник» в меню.",
-        reply_markup=menu_kb,
-    )
+    await m.answer("Ответ записан! После встречи выберите «Дневник».", reply_markup=menu_kb)
     await state.clear()
 
 # ───────────────────────── «Дневник» ──────────────────────────

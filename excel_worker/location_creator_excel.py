@@ -1,15 +1,28 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from db.engine import session_maker
 import pandas as pd
 import asyncio 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker 
-from db.engine import session_maker
-from db.models import MessagesForUsers
+from db.models import Culture
 
-
-df = pd.read_excel('data_mero.xlsx')
-selected = df.iloc[:, [0,1,2,3]]
+df = pd.read_excel('mero.xlsx')
+selected = df.iloc[:, [0, 1, 2, 3, 4, 5]]
 
 async def main():
     async with session_maker() as session:
         for _, row in selected.iterrows():
-            message = ...
+            mero = Culture(
+                name=str(row[0]),
+                adress=str(row[1]),
+                date_time=str(row[2]),
+                desc=str(row[3]),
+                ya_card=str(row[4]),
+                site=str(row[5]),
+            )
+            session.add(mero)
+        await session.commit()
+    print('Импорт всё !')
+
+if __name__ == "__main__":
+    asyncio.run(main())

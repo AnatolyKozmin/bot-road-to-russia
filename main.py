@@ -2,7 +2,7 @@ import os
 import asyncio
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv, find_dotenv
-from handlers.user_handlers import user_router
+from handlers.user_handlers import router
 from middleware import DbSessionMiddleware
 
 
@@ -22,7 +22,7 @@ bot = Bot(token=os.getenv('TOKEN'))
 
 
 dp = Dispatcher()
-dp.include_router(user_router)
+dp.include_router(router)
 dp.message.middleware(DbSessionMiddleware())
 
 
