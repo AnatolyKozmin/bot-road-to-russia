@@ -93,8 +93,8 @@ CATEGORY_MAP = {
     "Покушать": "is_delicious",
     "На весь день": "is_all_day",
 }
-DATE_RE = re.compile(r"^(RTR\d{4})-(@\w+)-(\d{2}\.\d{2}\.\d{4})$")
-DIARY_RE = re.compile(r"^встреча-(RTR\d{4})-(@\w+)$", re.IGNORECASE)
+DATE_RE = re.compile(r"^(@\w+)-(\d{2}\.\d{2}\.\d{4})$")
+DIARY_RE = re.compile(r"^встреча-(@\w+)$", re.IGNORECASE)
 
 
 @router.message(CommandStart())
@@ -190,7 +190,7 @@ async def meet_category(m: types.Message, state: FSMContext, session: AsyncSessi
 @router.message(F.text.casefold() == "дата")
 async def date_entry(m: types.Message, state: FSMContext):
     await m.answer(
-        "Напиши дату в формате:\nRTR0001-@nick-ДД.ММ.ГГГГ",
+        "Напиши дату в формате:\n@nick-ДД.ММ.ГГГГ",
         reply_markup=back_kb,
     )
     await state.set_state(GetDate.date_input)
@@ -298,7 +298,7 @@ async def diary_pick(cb: types.CallbackQuery, state: FSMContext):
 async def diary_select_by_text(m: types.Message, state: FSMContext, session: AsyncSession):
     match = DIARY_RE.match(m.text.strip())
     if not match:
-        await m.answer("Неверный формат строки. Попробуй снова, например: встреча-RTR0001-@nick")
+        await m.answer("Неверный формат строки. Попробуй снова, например: встреча-@nick")
         return
     _, friend_nick = match.groups()
 
