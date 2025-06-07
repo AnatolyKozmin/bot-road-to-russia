@@ -28,6 +28,7 @@ services:
     environment:
       TOKEN: ${TOKEN}              
       DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
+      DB_SYNC: postgres://road_to_russia:1234@db:5432/rtr_db 
     depends_on:
       - db                          
     volumes:                         
