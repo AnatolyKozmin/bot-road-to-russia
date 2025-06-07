@@ -22,34 +22,37 @@ services:
     depends_on:
       - db
 
-  alembic:
+
+  app:
     build: .
-    command: alembic upgrade head
     environment:
       DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
+      DB_SYNC: postgres://road_to_russia:1234@db:5432/rtr_db
+      TOKEN: ${TOKEN}       
+    depends_on:
+      - db
+    volumes:                 
+      - ./user_data.xlsx:/app/user_data.xlsx
+      - ./mero.xlsx:/app/mero.xlsx
+
+  alembic:
+    extends: app
+    command: alembic upgrade head
     depends_on:
       - db
 
   bot:
-    build: .
+    extends: app
     command: python main.py
-    environment:
-      TOKEN: ${TOKEN}
-      DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
     depends_on:
-      - db
       - alembic
-      
+
   excel_import:
-    build: .
-    command: python excel_reader.py
-    environment:
-      DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
+    extends: app
+    command: python import_all.py   
     depends_on:
-      - db
-    volumes:
-      - ./user_data.xlsx:/app/user_data.xlsx
-      - ./mero.xlsx:/app/mero.xlsx
+      - alembic
+
 
 volumes:
   postgres_data:
