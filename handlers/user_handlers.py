@@ -19,6 +19,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Users, MessagesForUsers, Culture, Meet
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+import logging
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -205,23 +209,62 @@ async def save_date(m: types.Message, state: FSMContext, session: AsyncSession):
         return
 
     _, friend_nick, date_str = mt.groups()
-    stmt = select(Meet).where(Meet.user_id == m.from_user.id, Meet.foreigner_tg_name == friend_nick)
-    meet = (await session.execute(stmt)).scalar_one_or_none()
-    if meet:
-        meet.date = date_str
-    else:
-        meet = Meet(date=date_str, user_id=m.from_user.id, foreigner_tg_name=friend_nick, photo_base64="")
-        session.add(meet)
-    await session.commit()
 
-    await m.answer("Ответ записан! После встречи выберите «Дневник».", reply_markup=menu_kb)
-    await state.clear()
+    try:
+        # Проверяем, существует ли пользователь по tg_id
+        user = (await session.execute(
+            select(Users).where(Users.tg_id == m.from_user.id)
+        )).scalar_one_or_none()
+
+        if not user:
+            await m.answer("Вы не зарегистрированы. Введите /start и код.")
+            await state.clear()
+            return
+
+        # Проверяем, существует ли встреча
+        stmt = select(Meet).where(
+            Meet.user_id == user.id,
+            Meet.foreigner_tg_name == friend_nick
+        )
+        meet = (await session.execute(stmt)).scalar_one_or_none()
+        if meet:
+            meet.date = date_str
+        else:
+            meet = Meet(
+                date=date_str,
+                user_id=user.id,
+                foreigner_tg_name=friend_nick,
+                photo_base64=""
+            )
+            session.add(meet)
+        await session.commit()
+
+        await m.answer("Ответ записан! После встречи выберите «Дневник».", reply_markup=menu_kb)
+        await state.clear()
+
+    except IntegrityError as e:
+        await m.answer("Ошибка при сохранении данных. Свяжитесь с @AnnaLastochka20.")
+        logger.error(f"IntegrityError in save_date: {str(e)}")
+        await session.rollback()
+    except Exception as e:
+        await m.answer("Неизвестная ошибка. Попробуйте позже.")
+        logger.error(f"Unexpected error in save_date: {str(e)}")
+        await session.rollback()
 
 # ───────────────────────── «Дневник» ──────────────────────────
 @router.message(F.text.casefold() == "дневник")
 async def diary_entry(m: types.Message, state: FSMContext, session: AsyncSession):
-    # ищем встречи пользователя без заполненных q1
-    stmt = select(Meet).where(Meet.user_id == m.from_user.id, Meet.q1.is_(None))
+    # Находим пользователя по tg_id
+    user = (await session.execute(
+        select(Users).where(Users.tg_id == m.from_user.id)
+    )).scalar_one_or_none()
+
+    if not user:
+        await m.answer("Вы не зарегистрированы. Введите /start и код.")
+        return
+
+    # Ищем встречи пользователя без заполненных q1
+    stmt = select(Meet).where(Meet.user_id == user.id, Meet.q1.is_(None))
     meets = (await session.execute(stmt)).scalars().all()
 
     if not meets:
@@ -230,12 +273,12 @@ async def diary_entry(m: types.Message, state: FSMContext, session: AsyncSession
 
     if len(meets) == 1:
         await state.update_data(meet_id=meets[0].id)
-        await m.answer("Напиши строку вида: встреча-RTR0001-@nick")
+        await m.answer(f"Заполните дневник для встречи с @{meets[0].foreigner_tg_name}. Напишите: встреча-RTR0001-@{meets[0].foreigner_tg_name}")
         await state.set_state(Diary.meet_select)
     else:
-        # отдаём инлайн‑кнопки
+        # Создаем инлайн-кнопки для выбора встречи
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"@{x.foreigner_tg_name}", callback_data=f"pick:{x.id}")]
+            [InlineKeyboardButton(text=f"@{x.foreigner_tg_name} ({x.date})", callback_data=f"pick:{x.id}")]
             for x in meets
         ])
         await m.answer("У вас несколько встреч. Выберите, для какой заполнить дневник:", reply_markup=kb)
@@ -255,11 +298,24 @@ async def diary_pick(cb: types.CallbackQuery, state: FSMContext):
 async def diary_select_by_text(m: types.Message, state: FSMContext, session: AsyncSession):
     match = DIARY_RE.match(m.text.strip())
     if not match:
-        await m.answer("Неверный формат строки. Попробуй снова.")
+        await m.answer("Неверный формат строки. Попробуй снова, например: встреча-RTR0001-@nick")
         return
     _, friend_nick = match.groups()
+
+    # Находим пользователя по tg_id
+    user = (await session.execute(
+        select(Users).where(Users.tg_id == m.from_user.id)
+    )).scalar_one_or_none()
+
+    if not user:
+        await m.answer("Вы не зарегистрированы. Введите /start и код.")
+        return
+
+    # Ищем встречу
     meet = (
-        await session.execute(select(Meet).where(Meet.user_id == m.from_user.id, Meet.foreigner_tg_name == friend_nick))
+        await session.execute(
+            select(Meet).where(Meet.user_id == user.id, Meet.foreigner_tg_name == friend_nick)
+        )
     ).scalar_one_or_none()
     if not meet:
         await m.answer("Встреча не найдена. Проверь ник.")

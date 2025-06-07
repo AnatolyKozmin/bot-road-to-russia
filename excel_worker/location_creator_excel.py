@@ -24,4 +24,3 @@ async def create_user_data():
         await session.commit()
     print('Импорт всё !')
 
-get_user_data = create_user_data()
