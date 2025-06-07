@@ -1,29 +1,41 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pandas as pd
-import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker
-from db.engine import engine  
+from sqlalchemy import select, func
+from db.engine import session_maker  # Исправлено: sessionmaker → session_maker
 from db.models import MessagesForUsers
+import logging
 
+# Настройка пути к проекту
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-df = pd.read_excel('user_data.xlsx')
-selected = df.iloc[:, [0, 1, 4, 5]]
+# Настройка логирования
+logger = logging.getLogger(__name__)
 
-async def create_location ():
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with async_session() as session:
-        for _, row in selected.iterrows():
-            message = MessagesForUsers(
-                who=str(row[0]),
-                tg_username=str(row[1]),
-                code=str(row[2]),
-                text_for_message=str(row[3])
+async def create_location(session: AsyncSession):
+    try:
+        # Проверяем, есть ли записи в таблице messages_for_users
+        count = await session.execute(select(func.count()).select_from(MessagesForUsers))
+        if count.scalar() > 0:
+            logger.info("MessagesForUsers data already imported, skipping...")
+            return
+
+        # Читаем Excel
+        df = pd.read_excel("user_data.xlsx")
+        messages = [
+            MessagesForUsers(
+                who=str(row["who"]),
+                tg_username=str(row["tg_username"]),
+                code=str(row["code"]),
+                text_for_message=str(row["text_for_message"]),
             )
-            session.add(message)
+            for _, row in df.iterrows()
+        ]
+        session.add_all(messages)
         await session.commit()
-    print('Импорт завершён успешно!')
-
-get_locations = create_location()
+        logger.info("MessagesForUsers data imported successfully from user_data.xlsx")
+    except Exception as e:
+        logger.error(f"Failed to import MessagesForUsers data: {str(e)}")
+        await session.rollback()
+        raise
