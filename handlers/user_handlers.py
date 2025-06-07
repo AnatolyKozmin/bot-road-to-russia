@@ -136,6 +136,16 @@ async def process_code(m: types.Message, state: FSMContext, session: AsyncSessio
 
 @router.message(F.text.casefold() == "встреча")
 async def meet_entry(m: types.Message, state: FSMContext):
+    await m.answer(text='И снова привет! Рада, что вы с другом нашли общий язык. Теперь пора выбрать место для вашей встречи. Ответь на вопросы ниже, и я отправлю тебе вариант интересного места для вашего досуга.\n\n'
+
+'Если у тебя два иностранных друга – заполняй разделы «Встреча» и «Дата» последовательно\n\n'
+
+'Время на выбор места и даты – 2 дня с момента отправки этого сообщения.\n\n'
+
+'Важные моменты:\n\n'
+'1) Перед тем, как ответить на вопрос бота, узнай мнение своего иностранного друга – ваше решение должно быть совместным;\n'
+'2) Если предложенный вариант вас не устроит, просто нажми кнопку «Встреча» в меню ещё раз и выбери другие параметры.\n'
+'3) После того, как вы выберете место с помощью бота и согласуете со своим другом дату встречи, выбери в меню «Дата».')
     await m.answer("Выберите бюджет встречи:", reply_markup=price_kb)
     await state.set_state(GetCulture.price)
 
@@ -190,7 +200,11 @@ async def meet_category(m: types.Message, state: FSMContext, session: AsyncSessi
 @router.message(F.text.casefold() == "дата")
 async def date_entry(m: types.Message, state: FSMContext):
     await m.answer(
-        "Напиши дату в формате:\n@nick-ДД.ММ.ГГГГ",
+        "Напиши, пожалуйста, дату вашей встречи, которую вы выбрали со своим другом и укажи свой ID и ник своего иностранного друга в ТГ.\n\n"
+
+        "Формат сообщения:"
+        "@никдруга-ДД.ММ.ГГГГ\n\n"
+        "Всё без пробелов, через короткое тире)",
         reply_markup=back_kb,
     )
     await state.set_state(GetDate.date_input)
@@ -205,10 +219,19 @@ async def save_date(m: types.Message, state: FSMContext, session: AsyncSession):
 
     mt = DATE_RE.match(m.text.strip())
     if not mt:
-        await m.answer("Неверный формат. Проверь пример или нажми «Назад».")
+        await m.answer("Неверный формат. Введите, например: @nick-02.07.2025 или нажмите «Назад».")
+        logger.warning(f"Invalid date format: {m.text}")
         return
 
-    _, friend_nick, date_str = mt.groups()
+    friend_nick, date_str = mt.groups()
+
+    # Проверка валидности даты
+    try:
+        datetime.strptime(date_str, "%d.%m.%Y")
+    except ValueError:
+        await m.answer("Некорректная дата. Используйте формат ДД.ММ.ГГГГ, например: @nick-02.07.2025")
+        logger.warning(f"Invalid date: {date_str}")
+        return
 
     try:
         # Проверяем, существует ли пользователь по tg_id
@@ -271,18 +294,13 @@ async def diary_entry(m: types.Message, state: FSMContext, session: AsyncSession
         await m.answer("У вас нет незаполненных дневников. Спасибо!")
         return
 
-    if len(meets) == 1:
-        await state.update_data(meet_id=meets[0].id)
-        await m.answer(f"Заполните дневник для встречи с @{meets[0].foreigner_tg_name}. Напишите: встреча-RTR0001-@{meets[0].foreigner_tg_name}")
-        await state.set_state(Diary.meet_select)
-    else:
-        # Создаем инлайн-кнопки для выбора встречи
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"@{x.foreigner_tg_name} ({x.date})", callback_data=f"pick:{x.id}")]
-            for x in meets
-        ])
-        await m.answer("У вас несколько встреч. Выберите, для какой заполнить дневник:", reply_markup=kb)
-        await state.set_state(Diary.meet_select)
+    # Создаем инлайн-кнопки для выбора встречи
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"@{x.foreigner_tg_name} ({x.date})", callback_data=f"pick:{x.id}")]
+        for x in meets
+    ])
+    await m.answer("Вот ваши встречи. Выберите, для какой заполнить дневник:", reply_markup=kb)
+    await state.set_state(Diary.meet_select)
 
 
 @router.callback_query(Diary.meet_select, F.data.startswith("pick:"))
