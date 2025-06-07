@@ -22,37 +22,18 @@ services:
     depends_on:
       - db
 
-
-  app:
+  bot:
     build: .
+    command: python main.py          
     environment:
+      TOKEN: ${TOKEN}              
       DB_URL: postgresql+asyncpg://road_to_russia:1234@db:5432/rtr_db
-      DB_SYNC: postgres://road_to_russia:1234@db:5432/rtr_db
-      TOKEN: ${TOKEN}       
     depends_on:
-      - db
-    volumes:                 
+      - db                          
+    volumes:                         
       - ./user_data.xlsx:/app/user_data.xlsx
       - ./mero.xlsx:/app/mero.xlsx
-
-  alembic:
-    extends: app
-    command: alembic upgrade head
-    depends_on:
-      - db
-
-  bot:
-    extends: app
-    command: python main.py
-    depends_on:
-      - alembic
-
-  excel_import:
-    extends: app
-    command: python import_all.py   
-    depends_on:
-      - alembic
-
+    restart: unless-stopped
 
 volumes:
   postgres_data:
